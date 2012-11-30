@@ -5,6 +5,8 @@ CMakeFiles/talkerecp.dir/src/talkerecp.o
  /home/ashok/fuerte_workspace/ecp/src/talkerecp.cpp
  /opt/ros/fuerte/include/XmlRpcDecl.h
  /opt/ros/fuerte/include/XmlRpcValue.h
+ /opt/ros/fuerte/include/geometry_msgs/Twist.h
+ /opt/ros/fuerte/include/geometry_msgs/Vector3.h
  /opt/ros/fuerte/include/opencv2/core/core.hpp
  /opt/ros/fuerte/include/opencv2/core/core_c.h
  /opt/ros/fuerte/include/opencv2/core/mat.hpp

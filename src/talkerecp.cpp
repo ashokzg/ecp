@@ -11,6 +11,7 @@
 //Include headers for OpenCV GUI handling
 #include <opencv2/highgui/highgui.hpp>
 #include "opencv2/video/tracking.hpp"
+#include <geometry_msgs/Twist.h>
 
 using namespace cv;
 using namespace std;
@@ -31,12 +32,14 @@ static Point origin;
 static Rect selection;
 int vmin = 10, vmax = 256, smin = 30;
 Mat image;
+static ros::Publisher createCtrl;
+static int imgWidth;
 
 void camShift(Mat inImg);
 
 static void onMouse( int event, int x, int y, int, void* )
 {
-    ROS_INFO("Mouse detected");
+    //ROS_INFO("Mouse detected");
     if( selectObject )
     {
         selection.x = MIN(x, origin.x);
@@ -62,6 +65,10 @@ static void onMouse( int event, int x, int y, int, void* )
     }
 }
 
+void camInfoCallback(const sensor_msgs::CameraInfo & camInfoMsg)
+{
+  imgWidth = camInfoMsg.width;
+}
 
 //This function is called everytime a new image is published
 void imageCallback(const sensor_msgs::ImageConstPtr& original_image)
@@ -121,6 +128,7 @@ void camShift(Mat inImg)
   static const float* phranges = hranges;
   static Mat frame, hsv, hue, mask, hist, histimg = Mat::zeros(200, 320, CV_8UC3), backproj;
   static bool paused = false;
+  RotatedRect trackBox;
 
   //ROS_INFO("Came here");
 
@@ -136,7 +144,8 @@ void camShift(Mat inImg)
             return;//break;
     }
 
-    //inImg.copyTo(image);
+    //Use the input image as the reference
+    //Only a shallow copy, so relatively fast
     image = inImg;
 
     if( !paused )
@@ -180,10 +189,12 @@ void camShift(Mat inImg)
 
             calcBackProject(&hue, 1, 0, hist, backproj, &phranges);
             backproj &= mask;
-            RotatedRect trackBox = CamShift(backproj, trackWindow,
+            trackBox = CamShift(backproj, trackWindow,
                                 TermCriteria( CV_TERMCRIT_EPS | CV_TERMCRIT_ITER, 10, 1 ));
             if( trackWindow.area() <= 1 )
             {
+                ROS_INFO("track height %d width %d", trackWindow.height, trackWindow.width);
+                trackObject = 0; //Disable tracking to avoid termination of node due to negative heights TBD
                 int cols = backproj.cols, rows = backproj.rows, r = (MIN(cols, rows) + 5)/6;
                 trackWindow = Rect(trackWindow.x - r, trackWindow.y - r,
                                    trackWindow.x + r, trackWindow.y + r) &
@@ -237,6 +248,29 @@ void camShift(Mat inImg)
   createTrackbar( "Vmin", "CamShift Demo", &vmin, 256, 0 );
   createTrackbar( "Vmax", "CamShift Demo", &vmax, 256, 0 );
   createTrackbar( "Smin", "CamShift Demo", &smin, 256, 0 );
+  int angle = trackBox.center.x - imgWidth/2;
+  geometry_msgs::Twist botVel;
+  if(angle > 40)
+  {
+      //Linear x is positive for forward direction
+      botVel.linear.x = 0.3;
+      //Angular z is negative for right
+      botVel.angular.z = -0.5;
+  }
+  else if(angle < -40)
+  {
+      //Linear x is positive for forward direction
+      botVel.linear.x = 0.3;
+      //Angular z is negative for right
+      botVel.angular.z = 0.5;
+  }
+  else if(angle != 0)
+  {
+      //Linear x is positive for forward direction
+      botVel.linear.x = 0.3;
+  }
+  ROS_INFO("Angle is %d", angle);
+  createCtrl.publish(botVel);
 }
 
 
@@ -275,9 +309,11 @@ int main(int argc, char **argv)
 	* In the default case, "raw" transport, the topic is in fact "camera/image_raw" with type sensor_msgs/Image. ROS will call
 	* the "imageCallback" function whenever a new image arrives. The 2nd argument is the queue size.
 	* subscribe() returns an image_transport::Subscriber object, that you must hold on to until you want to unsubscribe.
-	* When the Subscriber object is destructed, it will automatically unsubscribe from the "camera/image_raw" base topic.
+	* When the Subscriber object is destructed, it will automaticaInfoCallbacklly unsubscribe from the "camera/image_raw" base topic.
 	*/
         image_transport::Subscriber sub = it.subscribe("camera/image_raw", 1, imageCallback);
+        ros::Subscriber camInfo = nh.subscribe("camera/camera_info", 1, camInfoCallback);
+        createCtrl = nh.advertise<geometry_msgs::Twist>("cmd_vel", 100);
 	//OpenCV HighGUI call to destroy a display window on shut-down.
 	//destroyWindow(WINDOW);
     destroyWindow("Histogram");

@@ -4,6 +4,8 @@
 CMakeFiles/talkerecp.dir/src/talkerecp.o: src/talkerecp.cpp
 CMakeFiles/talkerecp.dir/src/talkerecp.o: /opt/ros/fuerte/include/XmlRpcDecl.h
 CMakeFiles/talkerecp.dir/src/talkerecp.o: /opt/ros/fuerte/include/XmlRpcValue.h
+CMakeFiles/talkerecp.dir/src/talkerecp.o: /opt/ros/fuerte/include/geometry_msgs/Twist.h
+CMakeFiles/talkerecp.dir/src/talkerecp.o: /opt/ros/fuerte/include/geometry_msgs/Vector3.h
 CMakeFiles/talkerecp.dir/src/talkerecp.o: /opt/ros/fuerte/include/opencv2/core/core.hpp
 CMakeFiles/talkerecp.dir/src/talkerecp.o: /opt/ros/fuerte/include/opencv2/core/core_c.h
 CMakeFiles/talkerecp.dir/src/talkerecp.o: /opt/ros/fuerte/include/opencv2/core/mat.hpp
