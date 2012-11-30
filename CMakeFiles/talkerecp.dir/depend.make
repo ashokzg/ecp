@@ -14,6 +14,7 @@ CMakeFiles/talkerecp.dir/src/talkerecp.o: /opt/ros/fuerte/include/opencv2/highgu
 CMakeFiles/talkerecp.dir/src/talkerecp.o: /opt/ros/fuerte/include/opencv2/highgui/highgui_c.h
 CMakeFiles/talkerecp.dir/src/talkerecp.o: /opt/ros/fuerte/include/opencv2/imgproc/imgproc.hpp
 CMakeFiles/talkerecp.dir/src/talkerecp.o: /opt/ros/fuerte/include/opencv2/imgproc/types_c.h
+CMakeFiles/talkerecp.dir/src/talkerecp.o: /opt/ros/fuerte/include/opencv2/video/tracking.hpp
 CMakeFiles/talkerecp.dir/src/talkerecp.o: /opt/ros/fuerte/include/ros/advertise_options.h
 CMakeFiles/talkerecp.dir/src/talkerecp.o: /opt/ros/fuerte/include/ros/advertise_service_options.h
 CMakeFiles/talkerecp.dir/src/talkerecp.o: /opt/ros/fuerte/include/ros/assert.h

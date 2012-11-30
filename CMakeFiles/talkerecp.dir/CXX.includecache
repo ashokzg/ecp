@@ -19,6 +19,8 @@ opencv2/imgproc/imgproc.hpp
 -
 opencv2/highgui/highgui.hpp
 -
+opencv2/video/tracking.hpp
+/home/ashok/fuerte_workspace/ecp/src/opencv2/video/tracking.hpp
 
 /opt/ros/fuerte/include/XmlRpcDecl.h
 ros/macros.h
@@ -139,6 +141,12 @@ opencv2/imgproc/types_c.h
 /opt/ros/fuerte/include/opencv2/imgproc/types_c.h
 opencv2/core/core_c.h
 /opt/ros/fuerte/include/opencv2/imgproc/opencv2/core/core_c.h
+
+/opt/ros/fuerte/include/opencv2/video/tracking.hpp
+opencv2/core/core.hpp
+/opt/ros/fuerte/include/opencv2/video/opencv2/core/core.hpp
+opencv2/imgproc/imgproc.hpp
+/opt/ros/fuerte/include/opencv2/video/opencv2/imgproc/imgproc.hpp
 
 /opt/ros/fuerte/include/ros/advertise_options.h
 ros/forwards.h

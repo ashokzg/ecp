@@ -10,15 +10,58 @@
 #include <opencv2/imgproc/imgproc.hpp>
 //Include headers for OpenCV GUI handling
 #include <opencv2/highgui/highgui.hpp>
+#include "opencv2/video/tracking.hpp"
+
+using namespace cv;
+using namespace std;
 
 //Store all constants for image encodings in the enc namespace to be used later.
 namespace enc = sensor_msgs::image_encodings;
 
 //Declare a string with the name of the window that we will create using OpenCV where processed images will be displayed.
-static const char WINDOW[] = "Image Processed";
+static const char WINDOW[] = "image";
 
 //Use method of ImageTransport to create image publisher
 image_transport::Publisher pub;
+bool backprojMode = false;
+bool selectObject = false;
+int trackObject = 0;
+bool showHist = true;
+static Point origin;
+static Rect selection;
+int vmin = 10, vmax = 256, smin = 30;
+Mat image;
+
+void camShift(Mat inImg);
+
+static void onMouse( int event, int x, int y, int, void* )
+{
+    ROS_INFO("Mouse detected");
+    if( selectObject )
+    {
+        selection.x = MIN(x, origin.x);
+        selection.y = MIN(y, origin.y);
+        selection.width = std::abs(x - origin.x);
+        selection.height = std::abs(y - origin.y);
+
+        selection &= Rect(0, 0, image.cols, image.rows);
+    }
+
+    switch( event )
+    {
+    case CV_EVENT_LBUTTONDOWN:
+        origin = Point(x,y);
+        selection = Rect(x,y,0,0);
+        selectObject = true;
+        break;
+    case CV_EVENT_LBUTTONUP:
+        selectObject = false;
+        if( selection.width > 0 && selection.height > 0 )
+            trackObject = -1;
+        break;
+    }
+}
+
 
 //This function is called everytime a new image is published
 void imageCallback(const sensor_msgs::ImageConstPtr& original_image)
@@ -37,28 +80,28 @@ void imageCallback(const sensor_msgs::ImageConstPtr& original_image)
 		ROS_ERROR("tutorialROSOpenCV::main.cpp::cv_bridge exception: %s", e.what());
 		return;
 	}
-
+	camShift(cv_ptr->image);
 	//Invert Image
 	//Go through all the rows
-	for(int i=0; i<cv_ptr->image.rows; i++)
-	{
-		//Go through all the columns
-		for(int j=0; j<cv_ptr->image.cols; j++)
-		{
-			//Go through all the channels (b, g, r)
-			for(int k=0; k<cv_ptr->image.channels(); k++)
-			{
-				//Invert the image by subtracting image data from 255
-				cv_ptr->image.data[i*cv_ptr->image.rows*4+j*3 + k] = 255-cv_ptr->image.data[i*cv_ptr->image.rows*4+j*3 + k];
-			}
-		}
-	}
+//	for(int i=0; i<cv_ptr->image.rows; i++)
+//	{
+//		//Go through all the columns
+//		for(int j=0; j<cv_ptr->image.cols; j++)
+//		{
+//			//Go through all the channels (b, g, r)
+//			for(int k=0; k<cv_ptr->image.channels(); k++)
+//			{
+//				//Invert the image by subtracting image data from 255
+//				cv_ptr->image.data[i*cv_ptr->image.rows*4+j*3 + k] = 255-cv_ptr->image.data[i*cv_ptr->image.rows*4+j*3 + k];
+//			}
+//		}
+//	}
 
 
 	//Display the image using OpenCV
-	cv::imshow(WINDOW, cv_ptr->image);
+	//imshow(WINDOW, cv_ptr->image);
 	//Add some delay in miliseconds. The function only works if there is at least one HighGUI window created and the window is active. If there are several HighGUI windows, any of them can be active.
-	cv::waitKey(3);
+	//waitKey(3);
 	/**
 	* The publish() function is how you send messages. The parameter
 	* is the message object. The type of this object must agree with the type
@@ -68,6 +111,134 @@ void imageCallback(const sensor_msgs::ImageConstPtr& original_image)
 	//Convert the CvImage to a ROS image message and publish it on the "camera/image_processed" topic.
         pub.publish(cv_ptr->toImageMsg());
 }
+
+void camShift(Mat inImg)
+{
+  //static VideoCapture cap;
+  static Rect trackWindow;
+  static int hsize = 16;
+  static float hranges[] = {0,180};
+  static const float* phranges = hranges;
+  static Mat frame, hsv, hue, mask, hist, histimg = Mat::zeros(200, 320, CV_8UC3), backproj;
+  static bool paused = false;
+
+  //ROS_INFO("Came here");
+
+  //CommandLineParser parser(argc, argv, keys);
+  //int camNum = parser.get<int>("0");
+  //for(;;)
+  {
+
+    if( !paused )
+    {
+        //cap >> frame;
+        if( inImg.empty() )
+            return;//break;
+    }
+
+    //inImg.copyTo(image);
+    image = inImg;
+
+    if( !paused )
+    {
+        cvtColor(image, hsv, CV_BGR2HSV);
+
+        if( trackObject )
+        {
+            int _vmin = vmin, _vmax = vmax;
+
+            inRange(hsv, Scalar(0, smin, MIN(_vmin,_vmax)),
+                    Scalar(180, 256, MAX(_vmin, _vmax)), mask);
+            int ch[] = {0, 0};
+            hue.create(hsv.size(), hsv.depth());
+            mixChannels(&hsv, 1, &hue, 1, ch, 1);
+
+            if( trackObject < 0 )
+            {
+                Mat roi(hue, selection), maskroi(mask, selection);
+                calcHist(&roi, 1, 0, maskroi, hist, 1, &hsize, &phranges);
+                normalize(hist, hist, 0, 255, CV_MINMAX);
+
+                trackWindow = selection;
+                trackObject = 1;
+
+                histimg = Scalar::all(0);
+                int binW = histimg.cols / hsize;
+                Mat buf(1, hsize, CV_8UC3);
+                for( int i = 0; i < hsize; i++ )
+                    buf.at<Vec3b>(i) = Vec3b(saturate_cast<uchar>(i*180./hsize), 255, 255);
+                cvtColor(buf, buf, CV_HSV2BGR);
+
+                for( int i = 0; i < hsize; i++ )
+                {
+                    int val = saturate_cast<int>(hist.at<float>(i)*histimg.rows/255);
+                    rectangle( histimg, Point(i*binW,histimg.rows),
+                               Point((i+1)*binW,histimg.rows - val),
+                               Scalar(buf.at<Vec3b>(i)), -1, 8 );
+                }
+            }
+
+            calcBackProject(&hue, 1, 0, hist, backproj, &phranges);
+            backproj &= mask;
+            RotatedRect trackBox = CamShift(backproj, trackWindow,
+                                TermCriteria( CV_TERMCRIT_EPS | CV_TERMCRIT_ITER, 10, 1 ));
+            if( trackWindow.area() <= 1 )
+            {
+                int cols = backproj.cols, rows = backproj.rows, r = (MIN(cols, rows) + 5)/6;
+                trackWindow = Rect(trackWindow.x - r, trackWindow.y - r,
+                                   trackWindow.x + r, trackWindow.y + r) &
+                              Rect(0, 0, cols, rows);
+            }
+
+            if( backprojMode )
+                cvtColor( backproj, image, CV_GRAY2BGR );
+            ellipse( image, trackBox, Scalar(0,0,255), 3, CV_AA );
+        }
+    }
+    else if( trackObject < 0 )
+        paused = false;
+
+    if( selectObject && selection.width > 0 && selection.height > 0 )
+    {
+        Mat roi(image, selection);
+        bitwise_not(roi, roi);
+    }
+
+    imshow( "CamShift Demo", image );
+    imshow( "Histogram", histimg );
+
+    char c = (char)waitKey(10);
+    if( c == 27 )
+        ROS_INFO("Exit boss");//break;
+    switch(c)
+    {
+    case 'b':
+        backprojMode = !backprojMode;
+        break;
+    case 'c':
+        trackObject = 0;
+        histimg = Scalar::all(0);
+        break;
+    case 'h':
+        showHist = !showHist;
+        if( !showHist )
+            destroyWindow( "Histogram" );
+        else
+            namedWindow( "Histogram", 1 );
+        break;
+    case 'p':
+        paused = !paused;
+        break;
+    default:
+        break;
+    }
+  }
+  setMouseCallback( "CamShift Demo", onMouse, 0 );
+  createTrackbar( "Vmin", "CamShift Demo", &vmin, 256, 0 );
+  createTrackbar( "Vmax", "CamShift Demo", &vmax, 256, 0 );
+  createTrackbar( "Smin", "CamShift Demo", &smin, 256, 0 );
+}
+
 
 /**
 * This tutorial demonstrates simple image conversion between ROS image message and OpenCV formats and image processing
@@ -85,6 +256,7 @@ int main(int argc, char **argv)
 	* part of the ROS system.
 	*/
         ros::init(argc, argv, "image_processor");
+        ROS_INFO("-----------------");
 	/**
 	* NodeHandle is the main access point to communications with the ROS system.
 	* The first NodeHandle constructed will fully initialize this node, and the last
@@ -94,7 +266,10 @@ int main(int argc, char **argv)
 	//Create an ImageTransport instance, initializing it with our NodeHandle.
         image_transport::ImageTransport it(nh);
 	//OpenCV HighGUI call to create a display window on start-up.
-	cv::namedWindow(WINDOW, CV_WINDOW_AUTOSIZE);
+	//namedWindow(WINDOW, CV_WINDOW_AUTOSIZE);
+	namedWindow( "Histogram", 0 );
+	namedWindow( "CamShift Demo", 0 );
+
 	/**
 	* Subscribe to the "camera/image_raw" base topic. The actual ROS topic subscribed to depends on which transport is used.
 	* In the default case, "raw" transport, the topic is in fact "camera/image_raw" with type sensor_msgs/Image. ROS will call
@@ -104,7 +279,9 @@ int main(int argc, char **argv)
 	*/
         image_transport::Subscriber sub = it.subscribe("camera/image_raw", 1, imageCallback);
 	//OpenCV HighGUI call to destroy a display window on shut-down.
-	cv::destroyWindow(WINDOW);
+	//destroyWindow(WINDOW);
+    destroyWindow("Histogram");
+    destroyWindow("CamShift Demo");
 	/**
 	* The advertise() function is how you tell ROS that you want to
 	* publish on a given topic name. This invokes a call to the ROS
@@ -122,7 +299,7 @@ int main(int argc, char **argv)
 	* than we can send them, the number here specifies how many messages to
 	* buffer up before throwing some away.
 	*/
-        pub = it.advertise("camera/image_processed", 1);
+        pub = it.advertise("camera/image_tracked", 1);
 	/**
 	* In this application all user callbacks will be called from within the ros::spin() call.
 	* ros::spin() will not return until the node has been shutdown, either through a call
