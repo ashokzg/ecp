@@ -12,7 +12,7 @@
 #include <opencv2/highgui/highgui.hpp>
 #include "opencv2/video/tracking.hpp"
 #include <geometry_msgs/Twist.h>
-#include "SURF_Homography.h"
+#include "SURFHomography.h"
 
 using namespace cv;
 using namespace std;
@@ -33,9 +33,10 @@ Mat image;
 static ros::Publisher createCtrl;
 static int imgWidth, imgHeight;
 static bool surfSelect = 0;
-static Mat selectedDest;
+static Mat fullDestImg, selDestImg, camImg;
 
 void camShift(Mat inImg);
+int SURF_main(Mat img_scene, Mat img_object);
 
 static void onMouse( int event, int x, int y, int, void* )
 {
@@ -61,7 +62,7 @@ static void onMouse( int event, int x, int y, int, void* )
         selectObject = false;
         if( selection.width > 0 && selection.height > 0 )
         {
-            trackObject = -1;
+            //trackObject = -1;
             surfSelect = 1;
         }
         break;
@@ -84,6 +85,7 @@ void imageCallback(const sensor_msgs::ImageConstPtr& original_image)
         //Always copy, returning a mutable CvImage
         //OpenCV expects color images to use BGR channel order.
         cv_ptr = cv_bridge::toCvCopy(original_image, enc::BGR8);
+        cv_ptr->image.copyTo(camImg);
     }
     catch (cv_bridge::Exception& e)
     {
@@ -91,41 +93,19 @@ void imageCallback(const sensor_msgs::ImageConstPtr& original_image)
         ROS_ERROR("tutorialROSOpenCV::main.cpp::cv_bridge exception: %s", e.what());
         return;
     }
-    camShift(cv_ptr->image);
     if(surfSelect == 1)
     {
-      ROS_INFO("Came here to SURF");
+      ROS_INFO("Destination selected");
       //The destination has been selected, copy them into our own image
       surfSelect = 0;
-      selectedDest.create(selection.width+1, selection.height+1, cv_ptr->image.type());
-      ROS_INFO("Selection x %d y %d h %d w %d", selection.x, selection.y, selection.height, selection.width);
-      //Copy the image after checking for proper size conditions
-      if(selection.x > 0 && selection.y > 0)
-      {
-        if((selection.x+selection.width < imgWidth) &&
-            (selection.y+selection.height < imgHeight))
-        {
-          for(int i=selection.y; i < selection.y+selection.height-1; i++)
-          {
-              //Go through all the columns
-              for(int j=selection.x; j<selection.x+selection.width-1; j++)
-              {
-                  //Go through all the channels (b, g, r)
-                  for(int k=0; k<cv_ptr->image.channels(); k++)
-                  {
-                    printf("%3d %3d %3d\n", i-selection.y, j-selection.x, k);
-                    //Copy the selected part of the image from the camera image to the smaller image containing the destination
-                      selectedDest.data[(i-selection.y)*(selectedDest.rows)*4 + (j-selection.x)*3 + k] =
-                          cv_ptr->image.data[i*cv_ptr->image.rows*4+j*3 + k];
-                      //Invert the image by subtracting image data from 255
-                      //cv_ptr->image.data[i*cv_ptr->image.rows*4+j*3 + k] = 255-cv_ptr->image.data[i*cv_ptr->image.rows*4+j*3 + k];
-                  }
-              }
-          }
-          imshow("Destination", selectedDest);
-        }
-      }
+      cv_ptr->image.copyTo(fullDestImg);
+      selDestImg = fullDestImg(selection);
+      imshow("Destination", selDestImg);
     }
+    if(selDestImg.data != 0)
+      SURF_main(camImg, selDestImg);
+    camShift(cv_ptr->image);
+
 
     //Invert Image
     //Go through all the rows
@@ -300,6 +280,103 @@ void camShift(Mat inImg)
   createCtrl.publish(botVel);
 }
 
+int SURF_main(Mat img_scene, Mat img_object)
+{
+  //static Mat temps = img_scene;
+  //static Mat tempo = img_object;
+  //imshow("SURFImg", temps);
+  //imshow("Destination", tempo);
+  if( !img_object.data || !img_scene.data )
+  { std::cout<< " --(!) Error reading images " << std::endl; return -1; }
+  //-- Step 1: Detect the keypoints using SURF Detector
+  int minHessian = 400;
+
+  SurfFeatureDetector detector( minHessian );
+
+  std::vector<KeyPoint> keypoints_object, keypoints_scene;
+
+  detector.detect( img_object, keypoints_object );
+  detector.detect( img_scene, keypoints_scene );
+
+  //-- Step 2: Calculate descriptors (feature vectors)
+  SurfDescriptorExtractor extractor;
+
+  Mat descriptors_object, descriptors_scene;
+
+  extractor.compute( img_object, keypoints_object, descriptors_object );
+  extractor.compute( img_scene, keypoints_scene, descriptors_scene );
+
+  //-- Step 3: Matching descriptor vectors using FLANN matcher
+  FlannBasedMatcher matcher;
+  std::vector< DMatch > matches;
+  matcher.match( descriptors_object, descriptors_scene, matches );
+
+  double max_dist = 0; double min_dist = 100;
+
+  //-- Quick calculation of max and min distances between keypoints
+  for( int i = 0; i < descriptors_object.rows; i++ )
+  { double dist = matches[i].distance;
+    if( dist < min_dist ) min_dist = dist;
+    if( dist > max_dist ) max_dist = dist;
+  }
+
+  printf("-- Max dist : %f \n", max_dist );
+  printf("-- Min dist : %f \n", min_dist );
+
+  //-- Draw only "good" matches (i.e. whose distance is less than 3*min_dist )
+  std::vector< DMatch > good_matches;
+
+  for( int i = 0; i < descriptors_object.rows; i++ )
+  { if( matches[i].distance < 3*min_dist )
+    { good_matches.push_back( matches[i]); }
+  }
+
+  Mat img_matches;
+  drawMatches( img_object, keypoints_object, img_scene, keypoints_scene,
+               good_matches, img_matches, Scalar::all(-1), Scalar::all(-1),
+               vector<char>(), DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS );
+
+
+  //-- Localize the object from img_1 in img_2
+  std::vector<Point2f> obj;
+  std::vector<Point2f> scene;
+
+  for( int i = 0; i < good_matches.size(); i++ )
+  {
+    //-- Get the keypoints from the good matches
+    obj.push_back( keypoints_object[ good_matches[i].queryIdx ].pt );
+    scene.push_back( keypoints_scene[ good_matches[i].trainIdx ].pt );
+  }
+
+  Mat points1 = ((InputArray)obj).getMat(), points2 = ((InputArray)scene).getMat();
+  static int npoints = points1.checkVector(2);
+
+  printf("npoints %d\n", npoints);
+  Mat H = findHomography( obj, scene, CV_RANSAC );
+//
+//  //-- Get the corners from the image_1 ( the object to be "detected" )
+//  std::vector<Point2f> obj_corners(4);
+//  obj_corners[0] = cvPoint(0,0); obj_corners[1] = cvPoint( img_object.cols, 0 );
+//  obj_corners[2] = cvPoint( img_object.cols, img_object.rows ); obj_corners[3] = cvPoint( 0, img_object.rows );
+//  std::vector<Point2f> scene_corners(4);
+//
+//  perspectiveTransform( obj_corners, scene_corners, H);
+//
+//
+//  //-- Draw lines between the corners (the mapped object in the scene - image_2 )
+//  line( img_matches, scene_corners[0] + Point2f( img_object.cols, 0), scene_corners[1] + Point2f( img_object.cols, 0), Scalar(0, 255, 0), 4 );
+//  line( img_matches, scene_corners[1] + Point2f( img_object.cols, 0), scene_corners[2] + Point2f( img_object.cols, 0), Scalar( 0, 255, 0), 4 );
+//  line( img_matches, scene_corners[2] + Point2f( img_object.cols, 0), scene_corners[3] + Point2f( img_object.cols, 0), Scalar( 0, 255, 0), 4 );
+//  line( img_matches, scene_corners[3] + Point2f( img_object.cols, 0), scene_corners[0] + Point2f( img_object.cols, 0), Scalar( 0, 255, 0), 4 );
+//
+//  //-- Show detected matches
+//  imshow( "Good Matches & Object detection", img_matches );
+
+  waitKey(1);
+
+  return 0;
+}
+
 
 /**
 * This tutorial demonstrates simple image conversion between ROS image message and OpenCV formats and image processing
@@ -331,6 +408,7 @@ int main(int argc, char **argv)
     namedWindow( "Histogram", 0 );
     namedWindow( "CamShift Demo", 0 );
     namedWindow("Destination", 0);
+    namedWindow("SURFImg", 0);
 
     /**
     * Subscribe to the "camera/image_raw" base topic. The actual ROS topic subscribed to depends on which transport is used.
@@ -347,6 +425,7 @@ int main(int argc, char **argv)
     destroyWindow("Histogram");
     destroyWindow("CamShift Demo");
     destroyWindow("Destination");
+    destroyWindow("SurfImg");
     /**
     * The advertise() function is how you tell ROS that you want to
     * publish on a given topic name. This invokes a call to the ROS
