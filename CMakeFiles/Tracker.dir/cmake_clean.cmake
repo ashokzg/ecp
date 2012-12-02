@@ -1,5 +1,5 @@
 FILE(REMOVE_RECURSE
-  "CMakeFiles/Tracker.dir/src/surfDestTracker.o"
+  "CMakeFiles/Tracker.dir/src/CamShiftDestTracker.o"
   "bin/Tracker.pdb"
   "bin/Tracker"
 )

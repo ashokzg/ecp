@@ -13,8 +13,6 @@
 #include "opencv2/video/tracking.hpp"
 #include <geometry_msgs/Twist.h>
 #include "SURFHomography.h"
-//#include "precomp.hpp"
-//#include "_modelest.h"
 
 using namespace cv;
 using namespace std;
@@ -39,102 +37,6 @@ static Mat fullDestImg, selDestImg, camImg;
 
 void camShift(Mat inImg);
 int SURF_main(Mat img_scene, Mat img_object);
-
-
-int bzFindHomography( const CvMat* objectPoints, const CvMat* imagePoints,
-                  CvMat* __H, int method, double ransacReprojThreshold,
-                  CvMat* mask )
-{
-    const double confidence = 0.995;
-    const int maxIters = 2000;
-    const double defaultRANSACReprojThreshold = 3;
-    bool result = false;
-    Ptr<CvMat> m, M, tempMask;
-
-    double H[9];
-    CvMat matH = cvMat( 3, 3, CV_64FC1, H );
-    int count;
-
-    CV_Assert( CV_IS_MAT(imagePoints) && CV_IS_MAT(objectPoints) );
-
-    count = MAX(imagePoints->cols, imagePoints->rows);
-    CV_Assert( count >= 4 );
-    if( ransacReprojThreshold <= 0 )
-        ransacReprojThreshold = defaultRANSACReprojThreshold;
-
-    m = cvCreateMat( 1, count, CV_64FC2 );
-    cvConvertPointsHomogeneous( imagePoints, m );
-
-    M = cvCreateMat( 1, count, CV_64FC2 );
-    cvConvertPointsHomogeneous( objectPoints, M );
-
-    if( mask )
-    {
-        CV_Assert( CV_IS_MASK_ARR(mask) && CV_IS_MAT_CONT(mask->type) &&
-            (mask->rows == 1 || mask->cols == 1) &&
-            mask->rows*mask->cols == count );
-    }
-    if( mask || count > 4 )
-        tempMask = cvCreateMat( 1, count, CV_8U );
-    if( !tempMask.empty() )
-        cvSet( tempMask, cvScalarAll(1.) );
-
-//    CvHomographyEstimator estimator(4);
-//    if( count == 4 )
-//        method = 0;
-//    if( method == CV_LMEDS )
-//        result = estimator.runLMeDS( M, m, &matH, tempMask, confidence, maxIters );
-//    else if( method == CV_RANSAC )
-//        result = estimator.runRANSAC( M, m, &matH, tempMask, ransacReprojThreshold, confidence, maxIters);
-//    else
-//        result = estimator.runKernel( M, m, &matH ) > 0;
-//
-//    if( result && count > 4 )
-//    {
-//        icvCompressPoints( (CvPoint2D64f*)M->data.ptr, tempMask->data.ptr, 1, count );
-//        count = icvCompressPoints( (CvPoint2D64f*)m->data.ptr, tempMask->data.ptr, 1, count );
-//        M->cols = m->cols = count;
-//        if( method == CV_RANSAC )
-//            estimator.runKernel( M, m, &matH );
-//        estimator.refine( M, m, &matH, 10 );
-//    }
-
-    if( result )
-        cvConvert( &matH, __H );
-
-    if( mask && tempMask )
-    {
-        if( CV_ARE_SIZES_EQ(mask, tempMask) )
-           cvCopy( tempMask, mask );
-        else
-           cvTranspose( tempMask, mask );
-    }
-
-    return (int)result;
-}
-
-Mat bzMfindHomography( InputArray _points1, InputArray _points2,
-                            int method, double ransacReprojThreshold, OutputArray _mask )
-{
-    Mat points1 = _points1.getMat(), points2 = _points2.getMat();
-    int npoints = points1.checkVector(2);
-    CV_Assert( npoints >= 0 && points2.checkVector(2) == npoints &&
-               points1.type() == points2.type());
-
-    Mat H(3, 3, CV_64F);
-    CvMat _pt1 = points1, _pt2 = points2;
-    CvMat matH = H, c_mask, *p_mask = 0;
-    if( _mask.needed() )
-    {
-        _mask.create(npoints, 1, CV_8U, -1, true);
-        p_mask = &(c_mask = _mask.getMat());
-    }
-    bool ok = bzFindHomography( &_pt1, &_pt2, &matH, method, ransacReprojThreshold, p_mask ) > 0;
-    if( !ok )
-        H = Scalar(0);
-    return H;
-}
-
 
 static void onMouse( int event, int x, int y, int, void* )
 {
@@ -184,6 +86,7 @@ void imageCallback(const sensor_msgs::ImageConstPtr& original_image)
         //OpenCV expects color images to use BGR channel order.
         cv_ptr = cv_bridge::toCvCopy(original_image, enc::BGR8);
         cv_ptr->image.copyTo(camImg);
+        cvtColor(cv_ptr->image, camImg, CV_BGR2GRAY);
     }
     catch (cv_bridge::Exception& e)
     {
@@ -197,6 +100,7 @@ void imageCallback(const sensor_msgs::ImageConstPtr& original_image)
       //The destination has been selected, copy them into our own image
       surfSelect = 0;
       cv_ptr->image.copyTo(fullDestImg);
+      cvtColor(cv_ptr->image, fullDestImg, CV_BGR2GRAY);
       selDestImg = fullDestImg(selection);
       imshow("Destination", selDestImg);
     }
@@ -387,7 +291,7 @@ int SURF_main(Mat img_scene, Mat img_object)
   if( !img_object.data || !img_scene.data )
   { std::cout<< " --(!) Error reading images " << std::endl; return -1; }
   //-- Step 1: Detect the keypoints using SURF Detector
-  int minHessian = 200;
+  int minHessian = 4000;
 
   SurfFeatureDetector detector( minHessian );
 
@@ -450,8 +354,7 @@ int SURF_main(Mat img_scene, Mat img_object)
   static int npoints = points1.checkVector(2);
 
   printf("npoints %d\n", npoints);
-  Mat H = bzMfindHomography( obj, scene, CV_RANSAC, 3, noArray());
-  //Mat H = findHomography( obj, scene, CV_RANSAC );
+//  Mat H = findHomography( obj, scene, CV_RANSAC );
 //
 //  //-- Get the corners from the image_1 ( the object to be "detected" )
 //  std::vector<Point2f> obj_corners(4);
@@ -469,7 +372,7 @@ int SURF_main(Mat img_scene, Mat img_object)
 //  line( img_matches, scene_corners[3] + Point2f( img_object.cols, 0), scene_corners[0] + Point2f( img_object.cols, 0), Scalar( 0, 255, 0), 4 );
 //
 //  //-- Show detected matches
-//  imshow( "Good Matches & Object detection", img_matches );
+  imshow( "Good Matches & Object detection", img_matches );
 
   waitKey(1);
 

@@ -4,7 +4,7 @@ SET(CMAKE_DEPENDS_LANGUAGES
   )
 # The set of files for implicit dependencies of each language:
 SET(CMAKE_DEPENDS_CHECK_CXX
-  "/home/ashok/fuerte_workspace/ecp/src/surfDestTracker.cpp" "/home/ashok/fuerte_workspace/ecp/CMakeFiles/Tracker.dir/src/surfDestTracker.o"
+  "/home/ashok/fuerte_workspace/ecp/src/CamShiftDestTracker.cpp" "/home/ashok/fuerte_workspace/ecp/CMakeFiles/Tracker.dir/src/CamShiftDestTracker.o"
   )
 SET(CMAKE_CXX_COMPILER_ID "GNU")
 

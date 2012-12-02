@@ -304,19 +304,19 @@ tests/fast:
 .PHONY : tests/fast
 
 # target to build an object file
-src/surfDestTracker.o:
-	$(MAKE) -f CMakeFiles/Tracker.dir/build.make CMakeFiles/Tracker.dir/src/surfDestTracker.o
-.PHONY : src/surfDestTracker.o
+src/CamShiftDestTracker.o:
+	$(MAKE) -f CMakeFiles/Tracker.dir/build.make CMakeFiles/Tracker.dir/src/CamShiftDestTracker.o
+.PHONY : src/CamShiftDestTracker.o
 
 # target to preprocess a source file
-src/surfDestTracker.i:
-	$(MAKE) -f CMakeFiles/Tracker.dir/build.make CMakeFiles/Tracker.dir/src/surfDestTracker.i
-.PHONY : src/surfDestTracker.i
+src/CamShiftDestTracker.i:
+	$(MAKE) -f CMakeFiles/Tracker.dir/build.make CMakeFiles/Tracker.dir/src/CamShiftDestTracker.i
+.PHONY : src/CamShiftDestTracker.i
 
 # target to generate assembly for a file
-src/surfDestTracker.s:
-	$(MAKE) -f CMakeFiles/Tracker.dir/build.make CMakeFiles/Tracker.dir/src/surfDestTracker.s
-.PHONY : src/surfDestTracker.s
+src/CamShiftDestTracker.s:
+	$(MAKE) -f CMakeFiles/Tracker.dir/build.make CMakeFiles/Tracker.dir/src/CamShiftDestTracker.s
+.PHONY : src/CamShiftDestTracker.s
 
 # Help Target
 help:
@@ -342,9 +342,9 @@ help:
 	@echo "... test-results"
 	@echo "... test-results-run"
 	@echo "... tests"
-	@echo "... src/surfDestTracker.o"
-	@echo "... src/surfDestTracker.i"
-	@echo "... src/surfDestTracker.s"
+	@echo "... src/CamShiftDestTracker.o"
+	@echo "... src/CamShiftDestTracker.i"
+	@echo "... src/CamShiftDestTracker.s"
 .PHONY : help
 
 
