@@ -12,6 +12,8 @@
 #include <opencv2/highgui/highgui.hpp>
 #include "opencv2/video/tracking.hpp"
 #include <geometry_msgs/Twist.h>
+#include <std_msgs/Float32.h>
+#include <std_msgs/Bool.h>
 
 using namespace cv;
 using namespace std;
@@ -21,19 +23,23 @@ namespace enc = sensor_msgs::image_encodings;
 
 
 //Use method of ImageTransport to create image publisher
-image_transport::Publisher pub;
+//image_transport::Publisher pub;
 bool backprojMode = false;
 bool selectObject = false;
 int trackObject = 0;
 bool showHist = true;
 static Point origin;
 static Rect selection;
-int vmin = 10, vmax = 256, smin = 30;
+int vmin = 10, vmax = 256, smin = 45;
 Mat image;
-static ros::Publisher createCtrl;
 static int imgWidth;
 
+
+static ros::Publisher robotAngleVar;
+static ros::Publisher robotRchdDest;
+
 void camShift(Mat inImg);
+
 
 static void onMouse( int event, int x, int y, int, void* )
 {
@@ -63,10 +69,23 @@ static void onMouse( int event, int x, int y, int, void* )
     }
 }
 
+//This function is called everytime a new image_info message is published
 void camInfoCallback(const sensor_msgs::CameraInfo & camInfoMsg)
 {
+  //Store the image width for calculation of angle
   imgWidth = camInfoMsg.width;
 }
+
+void destCoordCallback(const sensor_msgs::RegionOfInterest& destROI)
+{
+  //Copy the ROI to the local buffer
+  selection.x = destROI.x_offset;
+  selection.y = destROI.y_offset;
+  selection.height = destROI.height;
+  selection.width = destROI.width;
+  trackObject = -1;
+}
+
 
 //This function is called everytime a new image is published
 void imageCallback(const sensor_msgs::ImageConstPtr& original_image)
@@ -86,40 +105,29 @@ void imageCallback(const sensor_msgs::ImageConstPtr& original_image)
 		return;
 	}
 	camShift(cv_ptr->image);
-	//Invert Image
-	//Go through all the rows
-//	for(int i=0; i<cv_ptr->image.rows; i++)
-//	{
-//		//Go through all the columns
-//		for(int j=0; j<cv_ptr->image.cols; j++)
-//		{
-//			//Go through all the channels (b, g, r)
-//			for(int k=0; k<cv_ptr->image.channels(); k++)
-//			{
-//				//Invert the image by subtracting image data from 255
-//				cv_ptr->image.data[i*cv_ptr->image.rows*4+j*3 + k] = 255-cv_ptr->image.data[i*cv_ptr->image.rows*4+j*3 + k];
-//			}
-//		}
-//	}
+}
 
 
-	//Display the image using OpenCV
-	//imshow(WINDOW, cv_ptr->image);
-	//Add some delay in miliseconds. The function only works if there is at least one HighGUI window created and the window is active. If there are several HighGUI windows, any of them can be active.
-	//waitKey(3);
-	/**
-	* The publish() function is how you send messages. The parameter
-	* is the message object. The type of this object must agree with the type
-	* given as a template parameter to the advertise<>() call, as was done
-	* in the constructor in main().
-	*/
-	//Convert the CvImage to a ROS image message and publish it on the "camera/image_processed" topic.
-        pub.publish(cv_ptr->toImageMsg());
+void trackArea(Rect window)
+{
+  //TBD
+  //Code should track the area of the target. If the area grows very fast then most probably the destination has a shift
+  //And it has lost the destination
+}
+
+void calcAngle(Point2f destCentre)
+{
+  std_msgs::Float32 normAngle;
+  //If we have started tracking the object
+  if(!trackObject)
+  {
+    normAngle.data = (destCentre.x - ((float)imgWidth/2))/((float)imgWidth/2);
+    robotAngleVar.publish(normAngle);
+  }
 }
 
 void camShift(Mat inImg)
 {
-  //static VideoCapture cap;
   static Rect trackWindow;
   static int hsize = 16;
   static float hranges[] = {0,180};
@@ -128,152 +136,144 @@ void camShift(Mat inImg)
   static bool paused = false;
   RotatedRect trackBox;
 
-  //ROS_INFO("Came here");
-
-  //CommandLineParser parser(argc, argv, keys);
-  //int camNum = parser.get<int>("0");
-  //for(;;)
+  //If the image processing is not paused
+  if( !paused )
   {
-
-    if( !paused )
+    //cap >> frame;
+    if( inImg.empty() )
     {
-        //cap >> frame;
-        if( inImg.empty() )
-            return;//break;
+      ROS_INFO("Camera image empty");
+      return;//break;
     }
+  }
 
-    //Use the input image as the reference
-    //Only a shallow copy, so relatively fast
-    image = inImg;
+  //Use the input image as the reference
+  //Only a shallow copy, so relatively fast
+  image = inImg;
 
-    if( !paused )
-    {
-        cvtColor(image, hsv, CV_BGR2HSV);
+  if(!paused)
+  {
+      //Convert the colour space to HSV
+      cvtColor(image, hsv, CV_BGR2HSV);
 
-        if( trackObject )
-        {
-            int _vmin = vmin, _vmax = vmax;
+      //If the destination coordinates have been received, then start the tracking
+      //trackObject is set when the destination coordinates have been received
+      if( trackObject )
+      {
+          int _vmin = vmin, _vmax = vmax;
 
-            inRange(hsv, Scalar(0, smin, MIN(_vmin,_vmax)),
-                    Scalar(180, 256, MAX(_vmin, _vmax)), mask);
-            int ch[] = {0, 0};
-            hue.create(hsv.size(), hsv.depth());
-            mixChannels(&hsv, 1, &hue, 1, ch, 1);
+          inRange(hsv, Scalar(0, smin, MIN(_vmin,_vmax)),
+                  Scalar(180, 256, MAX(_vmin, _vmax)), mask);
+          int ch[] = {0, 0};
+          hue.create(hsv.size(), hsv.depth());
+          mixChannels(&hsv, 1, &hue, 1, ch, 1);
 
-            if( trackObject < 0 )
-            {
-                Mat roi(hue, selection), maskroi(mask, selection);
-                calcHist(&roi, 1, 0, maskroi, hist, 1, &hsize, &phranges);
-                normalize(hist, hist, 0, 255, CV_MINMAX);
+          //Do the following steps only for the first time
+          if( trackObject < 0 )
+          {
+              //Set the Region of interest and the mask for it
+              Mat roi(hue, selection), maskroi(mask, selection);
+              //Calculate the histogram of this
+              calcHist(&roi, 1, 0, maskroi, hist, 1, &hsize, &phranges);
+              normalize(hist, hist, 0, 255, CV_MINMAX);
 
-                trackWindow = selection;
-                trackObject = 1;
+              trackWindow = selection;
+              trackObject = 1;
 
-                histimg = Scalar::all(0);
-                int binW = histimg.cols / hsize;
-                Mat buf(1, hsize, CV_8UC3);
-                for( int i = 0; i < hsize; i++ )
-                    buf.at<Vec3b>(i) = Vec3b(saturate_cast<uchar>(i*180./hsize), 255, 255);
-                cvtColor(buf, buf, CV_HSV2BGR);
+              histimg = Scalar::all(0);
+              int binW = histimg.cols / hsize;
+              Mat buf(1, hsize, CV_8UC3);
+              for( int i = 0; i < hsize; i++ )
+                  buf.at<Vec3b>(i) = Vec3b(saturate_cast<uchar>(i*180./hsize), 255, 255);
+              cvtColor(buf, buf, CV_HSV2BGR);
 
-                for( int i = 0; i < hsize; i++ )
-                {
-                    int val = saturate_cast<int>(hist.at<float>(i)*histimg.rows/255);
-                    rectangle( histimg, Point(i*binW,histimg.rows),
-                               Point((i+1)*binW,histimg.rows - val),
-                               Scalar(buf.at<Vec3b>(i)), -1, 8 );
-                }
-            }
+              for( int i = 0; i < hsize; i++ )
+              {
+                  int val = saturate_cast<int>(hist.at<float>(i)*histimg.rows/255);
+                  rectangle( histimg, Point(i*binW,histimg.rows),
+                             Point((i+1)*binW,histimg.rows - val),
+                             Scalar(buf.at<Vec3b>(i)), -1, 8 );
+              }
+          }
 
-            calcBackProject(&hue, 1, 0, hist, backproj, &phranges);
-            backproj &= mask;
-            trackBox = CamShift(backproj, trackWindow,
-                                TermCriteria( CV_TERMCRIT_EPS | CV_TERMCRIT_ITER, 10, 1 ));
-            if( trackWindow.area() <= 1 )
-            {
-                ROS_INFO("track height %d width %d", trackWindow.height, trackWindow.width);
-                trackObject = 0; //Disable tracking to avoid termination of node due to negative heights TBD
-                int cols = backproj.cols, rows = backproj.rows, r = (MIN(cols, rows) + 5)/6;
-                trackWindow = Rect(trackWindow.x - r, trackWindow.y - r,
-                                   trackWindow.x + r, trackWindow.y + r) &
-                              Rect(0, 0, cols, rows);
-            }
+          calcBackProject(&hue, 1, 0, hist, backproj, &phranges);
+          backproj &= mask;
+          trackBox = CamShift(backproj, trackWindow,
+                              TermCriteria( CV_TERMCRIT_EPS | CV_TERMCRIT_ITER, 10, 1 ));
+          if( trackWindow.area() <= 1 )
+          {
+              ROS_INFO("*********DESTINATION LOST************");
+              ROS_INFO("track height %d width %d", trackWindow.height, trackWindow.width);
+              trackObject = 0; //Disable tracking to avoid termination of node due to negative heights TBD
+              int cols = backproj.cols, rows = backproj.rows, r = (MIN(cols, rows) + 5)/6;
+              trackWindow = Rect(trackWindow.x - r, trackWindow.y - r,
+                                 trackWindow.x + r, trackWindow.y + r) &
+                            Rect(0, 0, cols, rows);
+          }
 
-            if( backprojMode )
-                cvtColor( backproj, image, CV_GRAY2BGR );
-            ellipse( image, trackBox, Scalar(0,0,255), 3, CV_AA );
-        }
-    }
-    else if( trackObject < 0 )
-        paused = false;
+          if( backprojMode )
+              cvtColor( backproj, image, CV_GRAY2BGR );
+          ellipse( image, trackBox, Scalar(0,0,255), 3, CV_AA );
+      }
+  }
+  else if( trackObject < 0 )
+  {
+    //If a new destination has been selected stop pausing
+    paused = false;
+  }
 
-    if( selectObject && selection.width > 0 && selection.height > 0 )
-    {
-        Mat roi(image, selection);
-        bitwise_not(roi, roi);
-    }
+  //Code to display an inverted image of the selected region
+  //Remove this in the fall validation expt TBD
+  if( selectObject && selection.width > 0 && selection.height > 0 )
+  {
+      Mat roi(image, selection);
+      bitwise_not(roi, roi);
+  }
 
-    imshow( "CamShift Demo", image );
-    imshow( "Histogram", histimg );
+  imshow( "CamShift Demo", image );
+  imshow( "Histogram", histimg );
 
-    char c = (char)waitKey(10);
-    if( c == 27 )
-        ROS_INFO("Exit boss");//break;
-    switch(c)
-    {
-    case 'b':
-        backprojMode = !backprojMode;
-        break;
-    case 'c':
-        trackObject = 0;
-        histimg = Scalar::all(0);
-        break;
-    case 'h':
-        showHist = !showHist;
-        if( !showHist )
-            destroyWindow( "Histogram" );
-        else
-            namedWindow( "Histogram", 1 );
-        break;
-    case 'p':
-        paused = !paused;
-        break;
-    default:
-        break;
-    }
+  char c = (char)waitKey(1);
+  if( c == 27 )
+      ROS_INFO("Exit boss");//break;
+  switch(c)
+  {
+  case 'b':
+      backprojMode = !backprojMode;
+      break;
+  case 'c':
+      trackObject = 0;
+      histimg = Scalar::all(0);
+      break;
+  case 'h':
+      showHist = !showHist;
+      if( !showHist )
+          destroyWindow( "Histogram" );
+      else
+          namedWindow( "Histogram", 1 );
+      break;
+  case 'p':
+      paused = !paused;
+      break;
+  default:
+      break;
   }
   setMouseCallback( "CamShift Demo", onMouse, 0 );
   createTrackbar( "Vmin", "CamShift Demo", &vmin, 256, 0 );
   createTrackbar( "Vmax", "CamShift Demo", &vmax, 256, 0 );
   createTrackbar( "Smin", "CamShift Demo", &smin, 256, 0 );
-  int angle = trackBox.center.x - imgWidth/2;
-  geometry_msgs::Twist botVel;
-  if(angle > 40)
-  {
-      //Linear x is positive for forward direction
-      botVel.linear.x = 0.3;
-      //Angular z is negative for right
-      botVel.angular.z = -0.5;
-  }
-  else if(angle < -40)
-  {
-      //Linear x is positive for forward direction
-      botVel.linear.x = 0.3;
-      //Angular z is negative for right
-      botVel.angular.z = 0.5;
-  }
-  else if(angle != 0)
-  {
-      //Linear x is positive for forward direction
-      botVel.linear.x = 0.3;
-  }
-  ROS_INFO("Angle is %d", angle);
-  createCtrl.publish(botVel);
+
+
+  trackArea(trackWindow);
+  //Find the angle of the destination wrt to the robot and publish that
+  calcAngle(trackBox.center);
 }
 
 
+
+
 /**
-* This tutorial demonstrates simple image conversion between ROS image message and OpenCV formats and image processing
+* This is ROS node to track the destination image
 */
 int main(int argc, char **argv)
 {
@@ -287,18 +287,20 @@ int main(int argc, char **argv)
 	* You must call one of the versions of ros::init() before using any other
 	* part of the ROS system.
 	*/
-        ros::init(argc, argv, "image_processor");
-        ROS_INFO("-----------------");
+    ros::init(argc, argv, "image_processor");
+    ROS_INFO("-----------------");
 	/**
 	* NodeHandle is the main access point to communications with the ROS system.
 	* The first NodeHandle constructed will fully initialize this node, and the last
 	* NodeHandle destructed will close down the node.
 	*/
-        ros::NodeHandle nh;
+    ros::NodeHandle nh;
 	//Create an ImageTransport instance, initializing it with our NodeHandle.
-        image_transport::ImageTransport it(nh);
+    image_transport::ImageTransport it(nh);
+
+
+
 	//OpenCV HighGUI call to create a display window on start-up.
-	//namedWindow(WINDOW, CV_WINDOW_AUTOSIZE);
 	namedWindow( "Histogram", 0 );
 	namedWindow( "CamShift Demo", 0 );
 
@@ -309,37 +311,26 @@ int main(int argc, char **argv)
 	* subscribe() returns an image_transport::Subscriber object, that you must hold on to until you want to unsubscribe.
 	* When the Subscriber object is destructed, it will automaticaInfoCallbacklly unsubscribe from the "camera/image_raw" base topic.
 	*/
-        image_transport::Subscriber sub = it.subscribe("camera/image_raw", 1, imageCallback);
-        ros::Subscriber camInfo = nh.subscribe("camera/camera_info", 1, camInfoCallback);
-        createCtrl = nh.advertise<geometry_msgs::Twist>("cmd_vel", 100);
+    image_transport::Subscriber sub = it.subscribe("camera/image_raw", 1, imageCallback);
+    ros::Subscriber camInfo = nh.subscribe("camera/camera_info", 1, camInfoCallback);
+    ros::Subscriber destCoord = nh.subscribe("dest_coord", 1, destCoordCallback);
+    robotAngleVar = nh.advertise<std_msgs::Float32>("robot_angle_variation", 100);
+    robotRchdDest = nh.advertise<std_msgs::Bool>("robot_reached_destination", 10);
+
+
 	//OpenCV HighGUI call to destroy a display window on shut-down.
 	//destroyWindow(WINDOW);
     destroyWindow("Histogram");
     destroyWindow("CamShift Demo");
-	/**
-	* The advertise() function is how you tell ROS that you want to
-	* publish on a given topic name. This invokes a call to the ROS
-	* master node, which keeps a registry of who is publishing and who
-	* is subscribing. After this advertise() call is made, the master
-	* node will notify anyone who is trying to subscribe to this topic name,
-	* and they will in turn negotiate a peer-to-peer connection with this
-	* node.  advertise() returns a Publisher object which allows you to
-	* publish messages on that topic through a call to publish().  Once
-	* all copies of the returned Publisher object are destroyed, the topic
-	* will be automatically unadvertised.
-	*
-	* The second parameter to advertise() is the size of the message queue
-	* used for publishing messages.  If messages are published more quickly
-	* than we can send them, the number here specifies how many messages to
-	* buffer up before throwing some away.
-	*/
-        pub = it.advertise("camera/image_tracked", 1);
+
+
 	/**
 	* In this application all user callbacks will be called from within the ros::spin() call.
 	* ros::spin() will not return until the node has been shutdown, either through a call
 	* to ros::shutdown() or a Ctrl-C.
 	*/
-        ros::spin();
+    ros::spin();
+
 	//ROS_INFO is the replacement for printf/cout.
 	ROS_INFO("tutorialROSOpenCV::main.cpp::No error.");
 }

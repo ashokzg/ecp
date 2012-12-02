@@ -73,6 +73,8 @@ CMakeFiles/Tracker.dir/src/CamShiftDestTracker.o: /opt/ros/fuerte/include/sensor
 CMakeFiles/Tracker.dir/src/CamShiftDestTracker.o: /opt/ros/fuerte/include/sensor_msgs/Image.h
 CMakeFiles/Tracker.dir/src/CamShiftDestTracker.o: /opt/ros/fuerte/include/sensor_msgs/RegionOfInterest.h
 CMakeFiles/Tracker.dir/src/CamShiftDestTracker.o: /opt/ros/fuerte/include/sensor_msgs/image_encodings.h
+CMakeFiles/Tracker.dir/src/CamShiftDestTracker.o: /opt/ros/fuerte/include/std_msgs/Bool.h
+CMakeFiles/Tracker.dir/src/CamShiftDestTracker.o: /opt/ros/fuerte/include/std_msgs/Float32.h
 CMakeFiles/Tracker.dir/src/CamShiftDestTracker.o: /opt/ros/fuerte/include/std_msgs/Header.h
 CMakeFiles/Tracker.dir/src/CamShiftDestTracker.o: /opt/ros/fuerte/stacks/image_common/image_transport/include/image_transport/camera_publisher.h
 CMakeFiles/Tracker.dir/src/CamShiftDestTracker.o: /opt/ros/fuerte/stacks/image_common/image_transport/include/image_transport/camera_subscriber.h
