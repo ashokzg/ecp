@@ -33,10 +33,14 @@ static Rect selection;
 int vmin = 10, vmax = 256, smin = 45;
 Mat image;
 static int imgWidth;
+static int initDestArea = 1; //Initialized to 1 to avoid DIV by 0 errors
+//static int prevDestArea = 0;
+//static float destAreaDot = 0;
 
 
 static ros::Publisher robotAngleVar;
 static ros::Publisher robotRchdDest;
+static ros::Publisher destAreaPub;
 
 void camShift(Mat inImg);
 
@@ -52,6 +56,7 @@ static void onMouse( int event, int x, int y, int, void* )
         selection.height = std::abs(y - origin.y);
 
         selection &= Rect(0, 0, image.cols, image.rows);
+        initDestArea = selection.area();
     }
 
     switch( event )
@@ -84,6 +89,7 @@ void destCoordCallback(const sensor_msgs::RegionOfInterest& destROI)
   selection.height = destROI.height;
   selection.width = destROI.width;
   trackObject = -1;
+  initDestArea = selection.area();
 }
 
 
@@ -113,6 +119,10 @@ void trackArea(Rect window)
   //TBD
   //Code should track the area of the target. If the area grows very fast then most probably the destination has a shift
   //And it has lost the destination
+  std_msgs::Float32 destArea;
+  //destArea.data = ((float)curDestArea)/initDestArea;
+  destArea.data = (float)window.area();
+  destAreaPub.publish(destArea);
 }
 
 void calcAngle(Point2f destCentre)
@@ -202,7 +212,7 @@ void camShift(Mat inImg)
                               TermCriteria( CV_TERMCRIT_EPS | CV_TERMCRIT_ITER, 10, 1 ));
           if( trackWindow.area() <= 1 )
           {
-              ROS_INFO("*********DESTINATION LOST************");
+              ROS_INFO("*********DESTINATION LOST in CAMSHIFT************");
               ROS_INFO("track height %d width %d", trackWindow.height, trackWindow.width);
               trackObject = 0; //Disable tracking to avoid termination of node due to negative heights TBD
               int cols = backproj.cols, rows = backproj.rows, r = (MIN(cols, rows) + 5)/6;
@@ -263,7 +273,7 @@ void camShift(Mat inImg)
   createTrackbar( "Vmax", "CamShift Demo", &vmax, 256, 0 );
   createTrackbar( "Smin", "CamShift Demo", &smin, 256, 0 );
 
-
+  //Find the area of the destination and publish it
   trackArea(trackWindow);
   //Find the angle of the destination wrt to the robot and publish that
   calcAngle(trackBox.center);
@@ -312,10 +322,12 @@ int main(int argc, char **argv)
 	* When the Subscriber object is destructed, it will automaticaInfoCallbacklly unsubscribe from the "camera/image_raw" base topic.
 	*/
     image_transport::Subscriber sub = it.subscribe("camera/image_raw", 1, imageCallback);
-    ros::Subscriber camInfo = nh.subscribe("camera/camera_info", 1, camInfoCallback);
-    ros::Subscriber destCoord = nh.subscribe("dest_coord", 1, destCoordCallback);
-    robotAngleVar = nh.advertise<std_msgs::Float32>("robot_angle_variation", 100);
-    robotRchdDest = nh.advertise<std_msgs::Bool>("robot_reached_destination", 10);
+    ros::Subscriber camInfo         = nh.subscribe("camera/camera_info", 1, camInfoCallback);
+    ros::Subscriber destCoord       = nh.subscribe("dest_coord", 1, destCoordCallback);
+
+    robotAngleVar   = nh.advertise<std_msgs::Float32>("robot_angle_variation", 100);
+    robotRchdDest   = nh.advertise<std_msgs::Bool>("robot_reached_destination", 10);
+    destAreaPub     = nh.advertise<std_msgs::Float32>("area_of_destination", 10);
 
 
 	//OpenCV HighGUI call to destroy a display window on shut-down.
