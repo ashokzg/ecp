@@ -25,7 +25,7 @@ geometry_msgs/Twist.h
 -
 std_msgs/Float32.h
 -
-std_msgs/Bool.h
+std_msgs/UInt8.h
 -
 
 /opt/ros/fuerte/include/XmlRpcDecl.h
@@ -844,22 +844,6 @@ stdexcept
 string
 -
 
-/opt/ros/fuerte/include/std_msgs/Bool.h
-string
--
-vector
--
-map
--
-ros/types.h
--
-ros/serialization.h
--
-ros/builtin_message_traits.h
--
-ros/message_operations.h
--
-
 /opt/ros/fuerte/include/std_msgs/Float32.h
 string
 -
@@ -877,6 +861,22 @@ ros/message_operations.h
 -
 
 /opt/ros/fuerte/include/std_msgs/Header.h
+string
+-
+vector
+-
+map
+-
+ros/types.h
+-
+ros/serialization.h
+-
+ros/builtin_message_traits.h
+-
+ros/message_operations.h
+-
+
+/opt/ros/fuerte/include/std_msgs/UInt8.h
 string
 -
 vector

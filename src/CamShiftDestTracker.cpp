@@ -13,7 +13,7 @@
 #include "opencv2/video/tracking.hpp"
 #include <geometry_msgs/Twist.h>
 #include <std_msgs/Float32.h>
-#include <std_msgs/Bool.h>
+#include <std_msgs/UInt8.h>
 
 using namespace cv;
 using namespace std;
@@ -39,7 +39,15 @@ static int initDestArea = 1; //Initialized to 1 to avoid DIV by 0 errors
 
 
 static ros::Publisher robotAngleVar;
-static ros::Publisher robotRchdDest;
+
+
+/* State is published according to the following enum
+ * 0: Waiting for destination
+ * 1: Destination tracking enabled
+ * 2: Destination Lost
+ * 3..255: TBD
+ */
+static ros::Publisher imagePrStatePub;
 static ros::Publisher destAreaPub;
 
 void camShift(Mat inImg);
@@ -145,6 +153,7 @@ void camShift(Mat inImg)
   static Mat frame, hsv, hue, mask, hist, histimg = Mat::zeros(200, 320, CV_8UC3), backproj;
   static bool paused = false;
   RotatedRect trackBox;
+  std_msgs::UInt8 state;
 
   //If the image processing is not paused
   if( !paused )
@@ -181,6 +190,10 @@ void camShift(Mat inImg)
           //Do the following steps only for the first time
           if( trackObject < 0 )
           {
+              //Publish that we have started tracking
+              std_msgs::UInt8 state;
+              state.data = 1;
+              imagePrStatePub.publish(state);
               //Set the Region of interest and the mask for it
               Mat roi(hue, selection), maskroi(mask, selection);
               //Calculate the histogram of this
@@ -212,6 +225,10 @@ void camShift(Mat inImg)
                               TermCriteria( CV_TERMCRIT_EPS | CV_TERMCRIT_ITER, 10, 1 ));
           if( trackWindow.area() <= 1 )
           {
+              //Notify that the destination has been lost
+              std_msgs::UInt8 state;
+              state.data = 2;
+              imagePrStatePub.publish(state);
               ROS_INFO("*********DESTINATION LOST in CAMSHIFT************");
               ROS_INFO("track height %d width %d", trackWindow.height, trackWindow.width);
               trackObject = 0; //Disable tracking to avoid termination of node due to negative heights TBD
@@ -308,11 +325,12 @@ int main(int argc, char **argv)
 	//Create an ImageTransport instance, initializing it with our NodeHandle.
     image_transport::ImageTransport it(nh);
 
-
+    std_msgs::UInt8 state;
 
 	//OpenCV HighGUI call to create a display window on start-up.
 	namedWindow( "Histogram", 0 );
 	namedWindow( "CamShift Demo", 0 );
+
 
 	/**
 	* Subscribe to the "camera/image_raw" base topic. The actual ROS topic subscribed to depends on which transport is used.
@@ -325,10 +343,12 @@ int main(int argc, char **argv)
     ros::Subscriber camInfo         = nh.subscribe("camera/camera_info", 1, camInfoCallback);
     ros::Subscriber destCoord       = nh.subscribe("dest_coord", 1, destCoordCallback);
 
-    robotAngleVar   = nh.advertise<std_msgs::Float32>("robot_angle_variation", 100);
-    robotRchdDest   = nh.advertise<std_msgs::Bool>("robot_reached_destination", 10);
-    destAreaPub     = nh.advertise<std_msgs::Float32>("area_of_destination", 10);
+    robotAngleVar   = nh.advertise<std_msgs::Float32>("robot_angle", 100);
+    imagePrStatePub = nh.advertise<std_msgs::UInt8>("improc_state", 10);
+    destAreaPub     = nh.advertise<std_msgs::Float32>("dest_area", 10);
 
+    state.data = 0;
+    imagePrStatePub.publish(state);
 
 	//OpenCV HighGUI call to destroy a display window on shut-down.
 	//destroyWindow(WINDOW);
