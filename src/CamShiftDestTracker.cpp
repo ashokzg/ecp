@@ -30,9 +30,9 @@ int trackObject = 0;
 bool showHist = true;
 static Point origin;
 static Rect selection;
-int vmin = 10, vmax = 256, smin = 45;
+int vmin = 30, vmax = 256, smin = 60;
 Mat image;
-static int imgWidth;
+static int imgWidth, imgHeight;
 static int initDestArea = 1; //Initialized to 1 to avoid DIV by 0 errors
 //static int prevDestArea = 0;
 //static float destAreaDot = 0;
@@ -87,6 +87,7 @@ void camInfoCallback(const sensor_msgs::CameraInfo & camInfoMsg)
 {
   //Store the image width for calculation of angle
   imgWidth = camInfoMsg.width;
+  imgHeight = camInfoMsg.height;
 }
 
 void destCoordCallback(const sensor_msgs::RegionOfInterest& destROI)
@@ -129,7 +130,7 @@ void trackArea(Rect window)
   //And it has lost the destination
   std_msgs::Float32 destArea;
   //destArea.data = ((float)curDestArea)/initDestArea;
-  destArea.data = (float)window.area();
+  destArea.data = (float)window.area()/(imgHeight*imgWidth);
   destAreaPub.publish(destArea);
 }
 
