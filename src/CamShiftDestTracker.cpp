@@ -129,7 +129,7 @@ void calcAngle(Point2f destCentre)
 {
   std_msgs::Float32 normAngle;
   //If we have started tracking the object
-  if(!trackObject)
+  if(trackObject != 0)
   {
     normAngle.data = (destCentre.x - ((float)imgWidth/2))/((float)imgWidth/2);
     robotAngleVar.publish(normAngle);
